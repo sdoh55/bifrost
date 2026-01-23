@@ -536,7 +536,7 @@ export default function AppSidebar() {
 					title: "Pricing Config",
 					url: "/workspace/config/pricing-config",
 					icon: CircleDollarSign,
-					description: "Pricing configuration",
+					description: "Pricing configuration and overrides",
 					hasAccess: hasSettingsAccess,
 				},
 				{

@@ -1023,6 +1023,68 @@ func (s *RDBConfigStore) DeleteModelPrices(ctx context.Context, tx ...*gorm.DB) 
 	return txDB.WithContext(ctx).Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&tables.TableModelPricing{}).Error
 }
 
+// GetPricingOverrides retrieves all pricing override records from the database.
+func (s *RDBConfigStore) GetPricingOverrides(ctx context.Context) ([]tables.TablePricingOverride, error) {
+	var overrides []tables.TablePricingOverride
+	if err := s.db.WithContext(ctx).Find(&overrides).Error; err != nil {
+		return nil, err
+	}
+	return overrides, nil
+}
+
+// GetPricingOverride retrieves a single pricing override by model and provider.
+func (s *RDBConfigStore) GetPricingOverride(ctx context.Context, model, provider string) (*tables.TablePricingOverride, error) {
+	var override tables.TablePricingOverride
+	if err := s.db.WithContext(ctx).Where("model = ? AND provider = ?", model, provider).First(&override).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &override, nil
+}
+
+// UpsertPricingOverride creates or updates a pricing override record.
+func (s *RDBConfigStore) UpsertPricingOverride(ctx context.Context, override *tables.TablePricingOverride, tx ...*gorm.DB) error {
+	var txDB *gorm.DB
+	if len(tx) > 0 {
+		txDB = tx[0]
+	} else {
+		txDB = s.db
+	}
+	if err := txDB.WithContext(ctx).Clauses(
+		clause.OnConflict{
+			Columns: []clause.Column{{Name: "model"}, {Name: "provider"}},
+			DoUpdates: clause.AssignmentColumns([]string{
+				"input_cost_per_token", "output_cost_per_token",
+				"cache_read_input_token_cost", "cache_creation_input_token_cost",
+				"updated_at",
+			}),
+		},
+	).Create(override).Error; err != nil {
+		return s.parseGormError(err)
+	}
+	return nil
+}
+
+// DeletePricingOverride deletes a pricing override by model and provider.
+func (s *RDBConfigStore) DeletePricingOverride(ctx context.Context, model, provider string, tx ...*gorm.DB) error {
+	var txDB *gorm.DB
+	if len(tx) > 0 {
+		txDB = tx[0]
+	} else {
+		txDB = s.db
+	}
+	result := txDB.WithContext(ctx).Where("model = ? AND provider = ?", model, provider).Delete(&tables.TablePricingOverride{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // PLUGINS METHODS
 
 func (s *RDBConfigStore) GetPlugins(ctx context.Context) ([]*tables.TablePlugin, error) {

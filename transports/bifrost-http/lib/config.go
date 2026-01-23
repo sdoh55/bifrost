@@ -243,6 +243,9 @@ type Config struct {
 
 	// Pricing manager
 	PricingManager *modelcatalog.ModelCatalog
+
+	// Model catalog for pricing overrides
+	ModelCatalog *modelcatalog.ModelCatalog
 }
 
 var DefaultClientConfig = configstore.ClientConfig{
@@ -1504,6 +1507,7 @@ func initFrameworkConfigFromFile(ctx context.Context, config *Config, configData
 		logger.Warn("failed to initialize pricing manager: %v", err)
 	}
 	config.PricingManager = pricingManager
+	config.ModelCatalog = pricingManager
 }
 
 // initEncryptionFromFile initializes encryption from config file
@@ -1840,6 +1844,7 @@ func initDefaultFrameworkConfig(ctx context.Context, config *Config) error {
 		logger.Warn("failed to initialize pricing manager: %v", err)
 	}
 	config.PricingManager = pricingManager
+	config.ModelCatalog = pricingManager
 	return nil
 }
 

@@ -1,5 +1,6 @@
 import { IS_ENTERPRISE } from "@/lib/constants/config";
 import { BifrostConfig, GlobalProxyConfig, LatestReleaseResponse } from "@/lib/types/config";
+import { CreatePricingOverrideRequest, PricingOverride, PricingOverridesResponse } from "@/lib/types/pricing";
 import axios from "axios";
 import { baseApi } from "./baseApi";
 
@@ -95,6 +96,33 @@ export const configApi = baseApi.injectEndpoints({
 			}),
 			invalidatesTags: ["Config"],
 		}),
+
+		// Get all pricing overrides
+		getPricingOverrides: builder.query<PricingOverridesResponse, void>({
+			query: () => ({
+				url: "/pricing/overrides",
+			}),
+			providesTags: ["PricingOverrides"],
+		}),
+
+		// Create or update a pricing override
+		createPricingOverride: builder.mutation<{ status: string; message: string; override: PricingOverride }, CreatePricingOverrideRequest>({
+			query: (data) => ({
+				url: "/pricing/overrides",
+				method: "POST",
+				body: data,
+			}),
+			invalidatesTags: ["PricingOverrides"],
+		}),
+
+		// Delete a pricing override
+		deletePricingOverride: builder.mutation<{ status: string; message: string }, { model: string; provider: string }>({
+			query: ({ model, provider }) => ({
+				url: `/pricing/overrides/${encodeURIComponent(model)}/${encodeURIComponent(provider)}`,
+				method: "DELETE",
+			}),
+			invalidatesTags: ["PricingOverrides"],
+		}),
 	}),
 });
 
@@ -107,4 +135,7 @@ export const {
 	useLazyGetCoreConfigQuery,
 	useGetLatestReleaseQuery,
 	useLazyGetLatestReleaseQuery,
+	useGetPricingOverridesQuery,
+	useCreatePricingOverrideMutation,
+	useDeletePricingOverrideMutation,
 } = configApi;

@@ -16,6 +16,7 @@ interface ModelMultiselectPropsBase {
 	className?: string;
 	/** Load models even when no provider is selected */
 	loadModelsOnEmptyProvider?: boolean;
+	menuPosition?: "absolute" | "fixed";
 }
 
 interface ModelMultiselectPropsSingle extends ModelMultiselectPropsBase {
@@ -50,6 +51,7 @@ export function ModelMultiselect(props: ModelMultiselectProps) {
 		disabled = false,
 		className,
 		loadModelsOnEmptyProvider = false,
+		menuPosition,
 	} = props;
 	const isSingleSelect = props.isSingleSelect === true;
 
@@ -65,9 +67,9 @@ export function ModelMultiselect(props: ModelMultiselectProps) {
 			? [{ label: stringValue, value: stringValue }]
 			: []
 		: arrayValue.map((model) => ({
-				label: model,
-				value: model,
-			}));
+			label: model,
+			value: model,
+		}));
 
 	// Fetch initial models on mount or when provider/keys change
 	useEffect(() => {
@@ -183,6 +185,7 @@ export function ModelMultiselect(props: ModelMultiselectProps) {
 			isClearable={false}
 			closeMenuOnSelect={isSingleSelect}
 			menuPlacement="auto"
+			menuPosition={menuPosition}
 			menuListClassName="mx-1"
 			inputValue={inputValue}
 			onInputChange={handleInputChange}
