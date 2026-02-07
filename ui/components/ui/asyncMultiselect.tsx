@@ -388,7 +388,7 @@ export function AsyncMultiSelect<T>(props: AsyncMultiSelectProps<T>) {
 				controlShouldRenderValue={props.controlShouldRenderValue ?? true}
 				menuPlacement={props.menuPlacement}
 				blurInputOnSelect={false}
-				menuPosition={props.menuPosition ?? "fixed"}
+				menuPosition={props.menuPosition}
 				onInputChange={(newValue, actionMeta) => {
 					if (props.onInputChange) {
 						props.onInputChange(newValue, { action: actionMeta.action });
@@ -564,9 +564,9 @@ export function EvaluatorMultiSelect<V>(props: EvaluatorMultiSelectProps<V>) {
 	const processedOptions = props.options
 		? Array.isArray(props.options)
 			? props.options.map((group) => ({
-					...group,
-					options: group.options.filter(shouldFilterEvaluatorOnTags),
-				}))
+				...group,
+				options: group.options.filter(shouldFilterEvaluatorOnTags),
+			}))
 			: props.options
 		: undefined;
 

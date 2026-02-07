@@ -1453,7 +1453,7 @@ func preserveEnvVar(source *schemas.EnvVar, value string) *schemas.EnvVar {
 // loadAuthConfigFromFile loads auth config from file.
 // File config (configData) always takes precedence over DB config.
 func loadAuthConfigFromFile(ctx context.Context, config *Config, configData *ConfigData) {
-	hasFileConfig := configData != nil && configData.AuthConfig != nil	
+	hasFileConfig := configData != nil && configData.AuthConfig != nil
 	if !hasFileConfig && (config.GovernanceConfig == nil || config.GovernanceConfig.AuthConfig == nil) {
 		return
 	}

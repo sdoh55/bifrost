@@ -37,6 +37,10 @@ type ModelCatalog struct {
 	pricingData map[string]configstoreTables.TableModelPricing
 	mu          sync.RWMutex
 
+	// Pricing overrides cache (higher priority than pricingData)
+	pricingOverrides map[string]configstoreTables.TablePricingOverride
+	overridesMu      sync.RWMutex
+
 	modelPool      map[schemas.ModelProvider][]string
 	baseModelIndex map[string]string // model string → canonical base model name
 
@@ -112,6 +116,7 @@ func Init(ctx context.Context, config *Config, configStore configstore.ConfigSto
 		configStore:            configStore,
 		logger:                 logger,
 		pricingData:            make(map[string]configstoreTables.TableModelPricing),
+		pricingOverrides:       make(map[string]configstoreTables.TablePricingOverride),
 		modelPool:              make(map[schemas.ModelProvider][]string),
 		baseModelIndex:         make(map[string]string),
 		done:                   make(chan struct{}),
@@ -124,6 +129,9 @@ func Init(ctx context.Context, config *Config, configStore configstore.ConfigSto
 		if mc.distributedLockManager == nil {
 			if err := mc.loadPricingFromDatabase(ctx); err != nil {
 				return nil, fmt.Errorf("failed to load initial pricing data: %w", err)
+			}
+			if err := mc.loadPricingOverrides(ctx); err != nil {
+				return nil, fmt.Errorf("failed to load pricing overrides: %w", err)
 			}
 			if err := mc.syncPricing(ctx); err != nil {
 				return nil, fmt.Errorf("failed to sync pricing data: %w", err)
@@ -140,6 +148,9 @@ func Init(ctx context.Context, config *Config, configStore configstore.ConfigSto
 			// Load initial pricing data
 			if err := mc.loadPricingFromDatabase(ctx); err != nil {
 				return nil, fmt.Errorf("failed to load initial pricing data: %w", err)
+			}
+			if err := mc.loadPricingOverrides(ctx); err != nil {
+				return nil, fmt.Errorf("failed to load pricing overrides: %w", err)
 			}
 			if err := mc.syncPricing(ctx); err != nil {
 				return nil, fmt.Errorf("failed to sync pricing data: %w", err)
@@ -624,4 +635,86 @@ func (mc *ModelCatalog) Cleanup() error {
 	mc.wg.Wait()
 
 	return nil
+}
+
+// loadPricingOverrides loads pricing overrides from database into memory cache
+func (mc *ModelCatalog) loadPricingOverrides(ctx context.Context) error {
+	if mc.configStore == nil {
+		return nil
+	}
+
+	overrides, err := mc.configStore.GetPricingOverrides(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to load pricing overrides from database: %w", err)
+	}
+
+	mc.overridesMu.Lock()
+	defer mc.overridesMu.Unlock()
+
+	mc.pricingOverrides = make(map[string]configstoreTables.TablePricingOverride, len(overrides))
+	for _, override := range overrides {
+		key := makeOverrideKey(override.Model, override.Provider)
+		mc.pricingOverrides[key] = override
+	}
+
+	mc.logger.Debug("loaded %d pricing overrides into cache", len(overrides))
+	return nil
+}
+
+// GetPricingOverride returns a pricing override if it exists
+func (mc *ModelCatalog) GetPricingOverride(model, provider string) (*configstoreTables.TablePricingOverride, bool) {
+	mc.overridesMu.RLock()
+	defer mc.overridesMu.RUnlock()
+
+	key := makeOverrideKey(model, provider)
+	override, ok := mc.pricingOverrides[key]
+	if ok {
+		return &override, true
+	}
+	return nil, false
+}
+
+// UpsertPricingOverride creates or updates a pricing override
+func (mc *ModelCatalog) UpsertPricingOverride(ctx context.Context, override *configstoreTables.TablePricingOverride) error {
+	if mc.configStore == nil {
+		return fmt.Errorf("no config store available")
+	}
+
+	if err := mc.configStore.UpsertPricingOverride(ctx, override); err != nil {
+		return fmt.Errorf("failed to upsert pricing override: %w", err)
+	}
+
+	mc.overridesMu.Lock()
+	key := makeOverrideKey(override.Model, override.Provider)
+	mc.pricingOverrides[key] = *override
+	mc.overridesMu.Unlock()
+
+	return nil
+}
+
+// DeletePricingOverride deletes a pricing override
+func (mc *ModelCatalog) DeletePricingOverride(ctx context.Context, model, provider string) error {
+	if mc.configStore == nil {
+		return fmt.Errorf("no config store available")
+	}
+
+	if err := mc.configStore.DeletePricingOverride(ctx, model, provider); err != nil {
+		return fmt.Errorf("failed to delete pricing override: %w", err)
+	}
+
+	mc.overridesMu.Lock()
+	key := makeOverrideKey(model, provider)
+	delete(mc.pricingOverrides, key)
+	mc.overridesMu.Unlock()
+
+	return nil
+}
+
+// ListPricingOverrides returns all pricing overrides
+func (mc *ModelCatalog) ListPricingOverrides(ctx context.Context) ([]configstoreTables.TablePricingOverride, error) {
+	if mc.configStore == nil {
+		return nil, fmt.Errorf("no config store available")
+	}
+
+	return mc.configStore.GetPricingOverrides(ctx)
 }

@@ -10,6 +10,9 @@ import (
 // makeKey creates a unique key for a model, provider, and mode for pricingData map
 func makeKey(model, provider, mode string) string { return model + "|" + provider + "|" + mode }
 
+// makeOverrideKey creates a unique key for pricing overrides (model + provider only)
+func makeOverrideKey(model, provider string) string { return model + "|" + provider }
+
 // normalizeProvider normalizes the provider name to a consistent format
 func normalizeProvider(p string) string {
 	if strings.Contains(p, "vertex_ai") || p == "google-vertex" {
