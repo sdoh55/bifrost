@@ -174,6 +174,7 @@ export const baseApi = createApi({
 		"OAuth2Config",
 		"RoutingRules",
 		"MCPToolGroups",
+		"PricingOverrides",
 	],
 	endpoints: () => ({}),
 });

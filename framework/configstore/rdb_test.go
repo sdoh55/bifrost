@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	bifrost "github.com/maximhq/bifrost/core"
 	"github.com/maximhq/bifrost/core/schemas"
 	"github.com/maximhq/bifrost/framework/configstore/tables"
 	"github.com/stretchr/testify/assert"
@@ -35,6 +36,7 @@ func setupRDBTestStore(t *testing.T) *RDBConfigStore {
 		&tables.TablePlugin{},
 		&tables.TableMCPClient{},
 		&tables.TableVirtualKeyMCPConfig{},
+		&tables.TablePricingOverride{},
 	)
 	require.NoError(t, err, "Failed to migrate test database")
 
@@ -1043,4 +1045,149 @@ func TestRateLimitDurationFormats(t *testing.T) {
 		err := store.CreateRateLimit(ctx, rateLimit)
 		assert.NoError(t, err, "Duration %s should be valid", duration)
 	}
+}
+
+// =============================================================================
+// Pricing Override Tests
+// =============================================================================
+
+func TestPricingOverrides_CRUD(t *testing.T) {
+	store := setupRDBTestStore(t)
+	ctx := context.Background()
+
+	// Test Create
+	override := &tables.TablePricingOverride{
+		Model:              "gpt-4o",
+		Provider:           "openai",
+		InputCostPerToken:  bifrost.Ptr(0.00001),
+		OutputCostPerToken: bifrost.Ptr(0.00003),
+	}
+
+	err := store.UpsertPricingOverride(ctx, override)
+	require.NoError(t, err)
+
+	// Test Read all
+	overrides, err := store.GetPricingOverrides(ctx)
+	require.NoError(t, err)
+	assert.Len(t, overrides, 1)
+	assert.Equal(t, "gpt-4o", overrides[0].Model)
+	assert.Equal(t, "openai", overrides[0].Provider)
+	assert.Equal(t, 0.00001, *overrides[0].InputCostPerToken)
+	assert.Equal(t, 0.00003, *overrides[0].OutputCostPerToken)
+
+	// Test Read single
+	singleOverride, err := store.GetPricingOverride(ctx, "gpt-4o", "openai")
+	require.NoError(t, err)
+	assert.Equal(t, "gpt-4o", singleOverride.Model)
+
+	// Test Update
+	override.InputCostPerToken = bifrost.Ptr(0.00002)
+	err = store.UpsertPricingOverride(ctx, override)
+	require.NoError(t, err)
+
+	updated, err := store.GetPricingOverride(ctx, "gpt-4o", "openai")
+	require.NoError(t, err)
+	assert.Equal(t, 0.00002, *updated.InputCostPerToken)
+
+	// Test Delete
+	err = store.DeletePricingOverride(ctx, "gpt-4o", "openai")
+	require.NoError(t, err)
+
+	// Verify deletion
+	_, err = store.GetPricingOverride(ctx, "gpt-4o", "openai")
+	assert.ErrorIs(t, err, ErrNotFound)
+
+	// Verify count is 0
+	allOverrides, err := store.GetPricingOverrides(ctx)
+	require.NoError(t, err)
+	assert.Len(t, allOverrides, 0)
+}
+
+func TestPricingOverrides_MultipleOverrides(t *testing.T) {
+	store := setupRDBTestStore(t)
+	ctx := context.Background()
+
+	overrides := []*tables.TablePricingOverride{
+		{
+			Model:              "gpt-4o",
+			Provider:           "openai",
+			InputCostPerToken:  bifrost.Ptr(0.00001),
+			OutputCostPerToken: bifrost.Ptr(0.00003),
+		},
+		{
+			Model:              "claude-3-5-sonnet",
+			Provider:           "anthropic",
+			InputCostPerToken:  bifrost.Ptr(0.00002),
+			OutputCostPerToken: bifrost.Ptr(0.00006),
+		},
+		{
+			Model:              "gpt-4o",
+			Provider:           "azure",
+			InputCostPerToken:  bifrost.Ptr(0.000015),
+			OutputCostPerToken: bifrost.Ptr(0.000045),
+		},
+	}
+
+	for _, o := range overrides {
+		err := store.UpsertPricingOverride(ctx, o)
+		require.NoError(t, err)
+	}
+
+	// Verify all 3 overrides exist
+	allOverrides, err := store.GetPricingOverrides(ctx)
+	require.NoError(t, err)
+	assert.Len(t, allOverrides, 3)
+
+	// Test deletion doesn't affect others
+	err = store.DeletePricingOverride(ctx, "gpt-4o", "openai")
+	require.NoError(t, err)
+
+	remaining, err := store.GetPricingOverrides(ctx)
+	require.NoError(t, err)
+	assert.Len(t, remaining, 2)
+
+	// Verify specific overrides still exist
+	gpt4oAzure, err := store.GetPricingOverride(ctx, "gpt-4o", "azure")
+	require.NoError(t, err)
+	assert.NotNil(t, gpt4oAzure)
+	assert.Equal(t, 0.000015, *gpt4oAzure.InputCostPerToken)
+
+	claude, err := store.GetPricingOverride(ctx, "claude-3-5-sonnet", "anthropic")
+	require.NoError(t, err)
+	assert.NotNil(t, claude)
+	assert.Equal(t, 0.00002, *claude.InputCostPerToken)
+}
+
+func TestPricingOverrides_NotFound(t *testing.T) {
+	store := setupRDBTestStore(t)
+	ctx := context.Background()
+
+	_, err := store.GetPricingOverride(ctx, "non-existent", "openai")
+	assert.ErrorIs(t, err, ErrNotFound)
+
+	// Delete non-existent should also return error
+	err = store.DeletePricingOverride(ctx, "non-existent", "openai")
+	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestPricingOverrides_NilFields(t *testing.T) {
+	store := setupRDBTestStore(t)
+	ctx := context.Background()
+
+	// Create override with only some fields set
+	override := &tables.TablePricingOverride{
+		Model:              "test-model",
+		Provider:           "test-provider",
+		InputCostPerToken:  bifrost.Ptr(0.000005),
+		OutputCostPerToken: nil, // Intentionally nil
+	}
+
+	err := store.UpsertPricingOverride(ctx, override)
+	require.NoError(t, err)
+
+	// Read back
+	result, err := store.GetPricingOverride(ctx, "test-model", "test-provider")
+	require.NoError(t, err)
+	assert.Equal(t, 0.000005, *result.InputCostPerToken)
+	assert.Nil(t, result.OutputCostPerToken)
 }

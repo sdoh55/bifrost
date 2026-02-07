@@ -79,6 +79,9 @@ func (h *ConfigHandler) RegisterRoutes(r *router.Router, middlewares ...schemas.
 	r.GET("/api/proxy-config", lib.ChainMiddlewares(h.getProxyConfig, middlewares...))
 	r.PUT("/api/proxy-config", lib.ChainMiddlewares(h.updateProxyConfig, middlewares...))
 	r.POST("/api/pricing/force-sync", lib.ChainMiddlewares(h.forceSyncPricing, middlewares...))
+	r.GET("/api/pricing/overrides", lib.ChainMiddlewares(h.listPricingOverrides, middlewares...))
+	r.POST("/api/pricing/overrides", lib.ChainMiddlewares(h.createPricingOverride, middlewares...))
+	r.DELETE("/api/pricing/overrides/{model}/{provider}", lib.ChainMiddlewares(h.deletePricingOverride, middlewares...))
 }
 
 // getVersion handles GET /api/version - Get the current version
@@ -816,4 +819,87 @@ func validateHeaderFilterConfig(config *configstoreTables.GlobalHeaderFilterConf
 	}
 
 	return nil
+}
+
+// listPricingOverrides handles GET /api/pricing/overrides - List all pricing overrides
+func (h *ConfigHandler) listPricingOverrides(ctx *fasthttp.RequestCtx) {
+	if h.store.ModelCatalog == nil {
+		SendError(ctx, fasthttp.StatusServiceUnavailable, "model catalog not available")
+		return
+	}
+
+	overrides, err := h.store.ModelCatalog.ListPricingOverrides(ctx)
+	if err != nil {
+		logger.Warn(fmt.Sprintf("failed to list pricing overrides: %v", err))
+		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("failed to list pricing overrides: %v", err))
+		return
+	}
+
+	SendJSON(ctx, map[string]any{
+		"overrides": overrides,
+		"count":     len(overrides),
+	})
+}
+
+// createPricingOverride handles POST /api/pricing/overrides - Create or update a pricing override
+func (h *ConfigHandler) createPricingOverride(ctx *fasthttp.RequestCtx) {
+	if h.store.ModelCatalog == nil {
+		SendError(ctx, fasthttp.StatusServiceUnavailable, "model catalog not available")
+		return
+	}
+
+	var override configstoreTables.TablePricingOverride
+	if err := json.Unmarshal(ctx.PostBody(), &override); err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, fmt.Sprintf("invalid request body: %v", err))
+		return
+	}
+
+	// Validate required fields
+	if override.Model == "" {
+		SendError(ctx, fasthttp.StatusBadRequest, "model is required")
+		return
+	}
+	if override.Provider == "" {
+		SendError(ctx, fasthttp.StatusBadRequest, "provider is required")
+		return
+	}
+
+	if err := h.store.ModelCatalog.UpsertPricingOverride(ctx, &override); err != nil {
+		logger.Warn(fmt.Sprintf("failed to create pricing override: %v", err))
+		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("failed to create pricing override: %v", err))
+		return
+	}
+
+	SendJSON(ctx, map[string]any{
+		"status":   "success",
+		"message":  "pricing override created successfully",
+		"override": override,
+	})
+}
+
+// deletePricingOverride handles DELETE /api/pricing/overrides/{model}/{provider} - Delete a pricing override
+func (h *ConfigHandler) deletePricingOverride(ctx *fasthttp.RequestCtx) {
+	if h.store.ModelCatalog == nil {
+		SendError(ctx, fasthttp.StatusServiceUnavailable, "model catalog not available")
+		return
+	}
+
+	model, _ := ctx.UserValue("model").(string)
+	provider, _ := ctx.UserValue("provider").(string)
+
+	if model == "" || provider == "" {
+		SendError(ctx, fasthttp.StatusBadRequest, "model and provider are required")
+		return
+	}
+
+	if err := h.store.ModelCatalog.DeletePricingOverride(ctx, model, provider); err != nil {
+		logger.Warn(fmt.Sprintf("failed to delete pricing override: %v", err))
+		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("failed to delete pricing override: %v", err))
+		return
+	}
+
+	SendJSON(ctx, map[string]any{
+		"status":  "success",
+		"message": "pricing override deleted successfully",
+	})
 }

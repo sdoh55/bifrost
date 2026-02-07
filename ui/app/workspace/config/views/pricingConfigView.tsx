@@ -1,13 +1,20 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getErrorMessage, useForcePricingSyncMutation, useGetCoreConfigQuery, useUpdateCoreConfigMutation } from "@/lib/store";
-import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
-import { useEffect, useMemo } from "react";
+import { RbacOperation, RbacResource, useRbac } from "@/app/_fallbacks/enterprise/lib";
+import { useGetProvidersQuery } from "@/lib/store/apis/providersApi";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
+import { useGetPricingOverridesQuery, useCreatePricingOverrideMutation, useDeletePricingOverrideMutation } from "@/lib/store/apis/configApi";
+import { PricingOverride } from "@/lib/types/pricing";
+import { PricingOverrideModal } from "./pricingOverrideModal";
 
 interface PricingFormData {
 	pricing_datasheet_url: string;
@@ -20,6 +27,24 @@ export default function PricingConfigView() {
 	const config = bifrostConfig?.framework_config;
 	const [updateCoreConfig, { isLoading }] = useUpdateCoreConfigMutation();
 	const [forcePricingSync, { isLoading: isForceSyncing }] = useForcePricingSyncMutation();
+	const { data: overridesData, isLoading: loadingOverrides, refetch: refetchOverrides } = useGetPricingOverridesQuery();
+	const { data: providersData, isLoading: loadingProviders } = useGetProvidersQuery();
+
+	const availableProviders = useMemo(() => {
+		if (!providersData) return [];
+		const providers = providersData
+			.filter(
+				(p) =>
+					(p.keys && p.keys.length > 0) ||
+					p.network_config?.is_key_less ||
+					p.custom_provider_config?.is_key_less,
+			)
+			.map((p) => p.name);
+		return providers.sort();
+	}, [providersData]);
+	const [deletePricingOverride] = useDeletePricingOverrideMutation();
+	const [showAddModal, setShowAddModal] = useState(false);
+	const [editingOverride, setEditingOverride] = useState<PricingOverride | null>(null);
 
 	const {
 		register,
@@ -79,8 +104,15 @@ export default function PricingConfigView() {
 		}
 	};
 
+	const handleDelete = async (model: string, provider: string) => {
+		if (confirm(`Are you sure you want to delete the pricing override for ${model} (${provider})?`)) {
+			await deletePricingOverride({ model, provider });
+			refetchOverrides();
+		}
+	};
+
 	return (
-		<div className="mx-auto w-full max-w-4xl space-y-4">
+		<div className="mx-auto w-full max-w-6xl space-y-6">
 			<form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
 				<div className="flex items-center justify-between">
 					<div>
@@ -156,6 +188,111 @@ export default function PricingConfigView() {
 					</div>
 				</div>
 			</form>
+
+			{/* Pricing Overrides Section */}
+			<div className="space-y-4">
+				<div className="flex items-center justify-between">
+					<div>
+						<h2 className="text-2xl font-semibold tracking-tight">Pricing Overrides</h2>
+						<p className="text-muted-foreground text-sm">Set custom prices for specific models that take priority over the master pricing list.</p>
+					</div>
+					<Button onClick={() => setShowAddModal(true)} disabled={!hasSettingsUpdateAccess}>
+						Add Override
+					</Button>
+				</div>
+
+				{loadingOverrides ? (
+					<div className="text-center py-8">Loading...</div>
+				) : (
+					<div className="rounded-lg border shadow overflow-hidden">
+						<Table>
+							<TableHeader>
+								<TableRow>
+									<TableHead>Provider</TableHead>
+									<TableHead>Model</TableHead>
+									<TableHead>Input Cost</TableHead>
+									<TableHead>Output Cost</TableHead>
+									<TableHead>Cache Read</TableHead>
+									<TableHead>Cache Create</TableHead>
+									<TableHead className="w-[100px]">Actions</TableHead>
+								</TableRow>
+							</TableHeader>
+							<TableBody>
+								{overridesData?.overrides.map((override) => (
+									<TableRow key={`${override.model}-${override.provider}`}>
+										<TableCell>{override.provider}</TableCell>
+										<TableCell className="font-medium">{override.model}</TableCell>
+										<TableCell>
+											{override.input_cost_per_token !== undefined && override.input_cost_per_token !== null
+												? `$${(override.input_cost_per_token * 1000000).toFixed(4)}/1M`
+												: "-"}
+										</TableCell>
+										<TableCell>
+											{override.output_cost_per_token !== undefined && override.output_cost_per_token !== null
+												? `$${(override.output_cost_per_token * 1000000).toFixed(4)}/1M`
+												: "-"}
+										</TableCell>
+										<TableCell>
+											{override.cache_read_input_token_cost !== undefined && override.cache_read_input_token_cost !== null
+												? `$${(override.cache_read_input_token_cost * 1000000).toFixed(4)}/1M`
+												: "-"}
+										</TableCell>
+										<TableCell>
+											{override.cache_creation_input_token_cost !== undefined && override.cache_creation_input_token_cost !== null
+												? `$${(override.cache_creation_input_token_cost * 1000000).toFixed(4)}/1M`
+												: "-"}
+										</TableCell>
+										<TableCell>
+											<Button
+												variant="ghost"
+												size="sm"
+												onClick={() => setEditingOverride(override)}
+												className="h-8 w-8 p-0"
+												disabled={!hasSettingsUpdateAccess}
+											>
+												<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></svg>
+											</Button>
+											<Button
+												variant="ghost"
+												size="sm"
+												onClick={() => handleDelete(override.model, override.provider)}
+												className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+												disabled={!hasSettingsUpdateAccess}
+											>
+												<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /><line x1="10" x2="10" y1="11" y2="17" /><line x1="14" x2="14" y1="11" y2="17" /></svg>
+											</Button>
+										</TableCell>
+									</TableRow>
+								))}
+								{overridesData?.count === 0 && (
+									<TableRow>
+										<TableCell colSpan={7} className="text-center py-8">
+											No pricing overrides configured. Click "Add Override" to create one.
+										</TableCell>
+									</TableRow>
+								)}
+							</TableBody>
+						</Table>
+					</div>
+				)}
+			</div>
+
+			{(showAddModal || editingOverride) && (
+				<PricingOverrideModal
+					override={editingOverride}
+					availableProviders={availableProviders}
+					isOpen={true}
+					onClose={() => {
+						setShowAddModal(false);
+						setEditingOverride(null);
+					}}
+					onSave={() => {
+						setShowAddModal(false);
+						setEditingOverride(null);
+						refetchOverrides();
+					}}
+				/>
+			)}
 		</div>
 	);
 }

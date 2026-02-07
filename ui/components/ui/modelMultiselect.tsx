@@ -14,11 +14,13 @@ interface ModelMultiselectPropsBase {
 	placeholder?: string;
 	disabled?: boolean;
 	className?: string;
+
 	/** Load models even when no provider is selected.
 	 * - `true`: loads all models from all providers
 	 * - `"base_models"`: loads distinct base model names (useful for governance where cross-provider matching is needed)
 	 */
 	loadModelsOnEmptyProvider?: boolean | "base_models";
+	menuPosition?: "absolute" | "fixed";
 }
 
 interface ModelMultiselectPropsSingle extends ModelMultiselectPropsBase {
@@ -53,6 +55,7 @@ export function ModelMultiselect(props: ModelMultiselectProps) {
 		disabled = false,
 		className,
 		loadModelsOnEmptyProvider = false,
+		menuPosition,
 	} = props;
 	const isSingleSelect = props.isSingleSelect === true;
 
@@ -231,6 +234,7 @@ export function ModelMultiselect(props: ModelMultiselectProps) {
 			isClearable={false}
 			closeMenuOnSelect={isSingleSelect}
 			menuPlacement="auto"
+			menuPosition={menuPosition}
 			menuListClassName="mx-1"
 			inputValue={inputValue}
 			onInputChange={handleInputChange}

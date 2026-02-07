@@ -458,11 +458,22 @@ func (mc *ModelCatalog) CalculateCostFromUsage(provider string, model string, de
 }
 
 // getPricing returns pricing information for a model (thread-safe)
+// It first checks for pricing overrides, then falls back to the master pricing list
 func (mc *ModelCatalog) getPricing(model, provider string, requestType schemas.RequestType) (*configstoreTables.TableModelPricing, bool) {
+	mc.overridesMu.RLock()
+	override, hasOverride := mc.pricingOverrides[makeOverrideKey(model, provider)]
+	mc.overridesMu.RUnlock()
+
+	if hasOverride {
+		return applyPricingOverride(&override, &requestType), true
+	}
+
 	mc.mu.RLock()
 	defer mc.mu.RUnlock()
 
-	pricing, ok := mc.pricingData[makeKey(model, provider, normalizeRequestType(requestType))]
+	key := makeKey(model, provider, normalizeRequestType(requestType))
+	pricing, ok := mc.pricingData[key]
+
 	if !ok {
 		// Lookup in vertex if gemini not found
 		if provider == string(schemas.Gemini) {
@@ -535,4 +546,34 @@ func (mc *ModelCatalog) getPricing(model, provider string, requestType schemas.R
 		return nil, false
 	}
 	return &pricing, true
+}
+
+// applyPricingOverride constructs pricing from an override, deriving Mode from requestType.
+// Override fields that are non-nil set the corresponding pricing values.
+// Fields not specified in the override remain at zero values.
+func applyPricingOverride(override *configstoreTables.TablePricingOverride, requestType *schemas.RequestType) *configstoreTables.TableModelPricing {
+	if override == nil {
+		return nil
+	}
+
+	result := configstoreTables.TableModelPricing{
+		Model:    override.Model,
+		Provider: override.Provider,
+		Mode:     normalizeRequestType(*requestType),
+	}
+
+	if override.InputCostPerToken != nil {
+		result.InputCostPerToken = *override.InputCostPerToken
+	}
+	if override.OutputCostPerToken != nil {
+		result.OutputCostPerToken = *override.OutputCostPerToken
+	}
+	if override.CacheReadInputTokenCost != nil {
+		result.CacheReadInputTokenCost = override.CacheReadInputTokenCost
+	}
+	if override.CacheCreationInputTokenCost != nil {
+		result.CacheCreationInputTokenCost = override.CacheCreationInputTokenCost
+	}
+
+	return &result
 }

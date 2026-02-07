@@ -182,6 +182,9 @@ func triggerMigrations(ctx context.Context, db *gorm.DB) error {
 	if err := migrationAddAzureScopesColumn(ctx, db); err != nil {
 		return err
 	}
+	if err := migrationAddGovernanceModelPricingOverridesTable(ctx, db); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -2987,42 +2990,6 @@ func migrationAddDisableDBPingsInHealthColumn(ctx context.Context, db *gorm.DB) 
 	return nil
 }
 
-// migrationAddIsPingAvailableColumnToMCPClientTable adds the is_ping_available column to the config_mcp_clients table
-func migrationAddIsPingAvailableColumnToMCPClientTable(ctx context.Context, db *gorm.DB) error {
-	m := migrator.New(db, migrator.DefaultOptions, []*migrator.Migration{{
-		ID: "add_is_ping_available_column",
-		Migrate: func(tx *gorm.DB) error {
-			tx = tx.WithContext(ctx)
-			migrator := tx.Migrator()
-			if !migrator.HasColumn(&tables.TableMCPClient{}, "is_ping_available") {
-				if err := migrator.AddColumn(&tables.TableMCPClient{}, "is_ping_available"); err != nil {
-					return err
-				}
-				// Set default value for existing rows
-				if err := tx.Model(&tables.TableMCPClient{}).Where("is_ping_available IS NULL").Update("is_ping_available", true).Error; err != nil {
-					return err
-				}
-			}
-			return nil
-		},
-		Rollback: func(tx *gorm.DB) error {
-			tx = tx.WithContext(ctx)
-			migrator := tx.Migrator()
-			if migrator.HasColumn(&tables.TableMCPClient{}, "is_ping_available") {
-				if err := migrator.DropColumn(&tables.TableMCPClient{}, "is_ping_available"); err != nil {
-					return err
-				}
-			}
-			return nil
-		},
-	}})
-	err := m.Migrate()
-	if err != nil {
-		return fmt.Errorf("error while running is_ping_available migration: %s", err.Error())
-	}
-	return nil
-}
-
 // migrationAddRoutingRulesTable adds the routing rules table for intelligent request routing
 func migrationAddRoutingRulesTable(ctx context.Context, db *gorm.DB) error {
 	m := migrator.New(db, migrator.DefaultOptions, []*migrator.Migration{{
@@ -3063,7 +3030,7 @@ func migrationAddOAuthTables(ctx context.Context, db *gorm.DB) error {
 		ID: "add_oauth_tables",
 		Migrate: func(tx *gorm.DB) error {
 			tx = tx.WithContext(ctx)
-			migrator := tx.Migrator()			
+			migrator := tx.Migrator()
 			// Create oauth_configs table FIRST (before adding FK columns that reference it)
 			if !migrator.HasTable(&tables.TableOauthConfig{}) {
 				if err := migrator.CreateTable(&tables.TableOauthConfig{}); err != nil {
@@ -3258,6 +3225,68 @@ func migrationAddAzureScopesColumn(ctx context.Context, db *gorm.DB) error {
 	}})
 	if err := m.Migrate(); err != nil {
 		return fmt.Errorf("error running azure_scopes migration: %s", err.Error())
+	}
+	return nil
+}
+
+func migrationAddIsPingAvailableColumnToMCPClientTable(ctx context.Context, db *gorm.DB) error {
+	m := migrator.New(db, migrator.DefaultOptions, []*migrator.Migration{{
+		ID: "add_is_ping_available_column",
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			migrator := tx.Migrator()
+			if !migrator.HasColumn(&tables.TableMCPClient{}, "is_ping_available") {
+				if err := migrator.AddColumn(&tables.TableMCPClient{}, "is_ping_available"); err != nil {
+					return err
+				}
+				if err := tx.Model(&tables.TableMCPClient{}).Where("is_ping_available IS NULL").Update("is_ping_available", true).Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			migrator := tx.Migrator()
+			if migrator.HasColumn(&tables.TableMCPClient{}, "is_ping_available") {
+				if err := migrator.DropColumn(&tables.TableMCPClient{}, "is_ping_available"); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}})
+	err := m.Migrate()
+	if err != nil {
+		return fmt.Errorf("error while running is_ping_available migration: %s", err.Error())
+	}
+	return nil
+}
+
+func migrationAddGovernanceModelPricingOverridesTable(ctx context.Context, db *gorm.DB) error {
+	m := migrator.New(db, migrator.DefaultOptions, []*migrator.Migration{{
+		ID: "add_governance_model_pricing_overrides_table",
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			migrator := tx.Migrator()
+			if !migrator.HasTable(&tables.TablePricingOverride{}) {
+				if err := migrator.CreateTable(&tables.TablePricingOverride{}); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			migrator := tx.Migrator()
+			if err := migrator.DropTable(&tables.TablePricingOverride{}); err != nil {
+				return err
+			}
+			return nil
+		},
+	}})
+	if err := m.Migrate(); err != nil {
+		return fmt.Errorf("error running governance_model_pricing_overrides table migration: %s", err.Error())
 	}
 	return nil
 }
